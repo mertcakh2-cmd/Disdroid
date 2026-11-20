@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?><LinearLayout
+xmlns:android="http://schemas.android.com/apk/res/android"
+android:layout_width="match_parent"
+android:layout_height="match_parent"
+android:orientation="vertical"
+android:background="#0F0D17">
+
+<!-- HEADER -->
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="64dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="16dp"
+    android:paddingEnd="10dp"
+    android:background="#1C1827"
+    android:elevation="4dp">
+
+    <TextView
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="DisDroid"
+        android:textColor="#FFFFFF"
+        android:textSize="23sp"
+        android:textStyle="bold"/>
+
+    <Button
+        android:id="@+id/cssButton"
+        android:layout_width="wrap_content"
+        android:layout_height="42dp"
+        android:text="CSS"
+        android:textAllCaps="false"/>
+
+    <Button
+        android:id="@+id/settingsButton"
+        android:layout_width="wrap_content"
+        android:layout_height="42dp"
+        android:text="Settings"
+        android:textAllCaps="false"/>
+
+    <Button
+        android:id="@+id/reloadButton"
+        android:layout_width="42dp"
+        android:layout_height="42dp"
+        android:minWidth="0dp"
+        android:text="↻"
+        android:textSize="20sp"/>
+
+</LinearLayout>
+
+<!-- DISCORD WEBVIEW -->
+<WebView
+    android:id="@+id/discordWebView"
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_weight="1"
+    android:background="#0F0D17"/>
+
+</LinearLayout>
