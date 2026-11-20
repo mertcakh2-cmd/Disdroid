@@ -4,107 +4,106 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.graphics.Color
 import android.os.Bundle
-import android.view.ViewGroup
+import android.text.InputType
 import android.view.Gravity
+import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
-import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.TextView
 import android.widget.Toast
-import android.text.InputType
 import org.json.JSONObject
 
 class MainActivity : Activity() {
 
     private lateinit var webView: WebView
-    private lateinit var cssEditor: EditText
 
-    private val preferences by lazy {
+    private val prefs by lazy {
         getSharedPreferences("disdroid_settings", MODE_PRIVATE)
     }
 
     private val defaultCss = """
-/* DISDROID CUSTOM CSS */
+        /* DISDROID THEME */
 
-/* Main background */
-body {
-    background-color: #17151f !important;
-}
+        :root {
+            --brand-experiment: #a855f7 !important;
+            --brand-experiment-560: #9333ea !important;
+        }
 
-/* Example: rounded buttons */
-button {
-    border-radius: 12px !important;
-}
+        body {
+            background-color: #17151f !important;
+        }
 
-/* Example: purple accent */
-:root {
-    --brand-experiment: #a855f7;
-}
-
-/* Add your own CSS below */
-
-""".trimIndent()
+        button {
+            border-radius: 12px !important;
+        }
+    """.trimIndent()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        CookieManager.getInstance().setAcceptCookie(true)
+        setContentView(R.layout.activity_main)
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(15, 15, 20))
+        webView = findViewById(R.id.discordWebView)
+
+        findViewById<Button>(R.id.cssButton).setOnClickListener {
+            showCssEditor()
         }
 
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(14, 12, 14, 12)
+        findViewById<Button>(R.id.settingsButton).setOnClickListener {
+            showDisDroidSettings()
+        }
+
+        findViewById<Button>(R.id.reloadButton).setOnClickListener {
+            loadDiscord()
+        }
+
+        configureWebView()
+        loadDiscord()
+    }
+
+    @Suppress("SetJavaScriptEnabled")
+    private fun configureWebView() {
+
+        CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            setAcceptThirdPartyCookies(webView, true)
+        }
+
+        webView.apply {
+
             setBackgroundColor(Color.rgb(24, 22, 32))
-        }
 
-        val title = TextView(this).apply {
-            text = "DisDroid"
-            textSize = 21f
-            setTextColor(Color.WHITE)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        }
+            settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                databaseEnabled = true
 
-        val cssButton = Button(this).apply {
-            text = "CSS"
-            setOnClickListener {
-                showCssEditor()
+                loadsImagesAutomatically = true
+                javaScriptCanOpenWindowsAutomatically = true
+
+                setSupportMultipleWindows(false)
+
+                useWideViewPort = true
+                loadWithOverviewMode = true
+
+                builtInZoomControls = false
+                displayZoomControls = false
+
+                mediaPlaybackRequiresUserGesture = true
+
+                // Remove Android WebView's identifying marker.
+                userAgentString = userAgentString
+                    .replace("; wv)", ")")
+                    .replace("Version/4.0 ", "")
             }
-        }
-
-        val reloadButton = Button(this).apply {
-            text = "Reload"
-            setOnClickListener {
-                webView.reload()
-            }
-        }
-
-        header.addView(
-            title,
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        )
-
-        header.addView(cssButton)
-        header.addView(reloadButton)
-
-        webView = WebView(this).apply {
-            setBackgroundColor(Color.rgb(15, 15, 20))
-
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.databaseEnabled = true
-            settings.useWideViewPort = true
-            settings.loadWithOverviewMode = true
 
             webChromeClient = WebChromeClient()
 
@@ -115,23 +114,36 @@ button {
                     request: WebResourceRequest
                 ): Boolean {
 
-                    val url = request.url
+                    val uri = request.url
 
-                    if (url.scheme == "disdroid") {
-                        when (url.host) {
+                    // Handle DisDroid's private navigation commands.
+                    if (uri.scheme == "disdroid") {
+
+                        when (uri.host) {
+                            "settings" -> showDisDroidSettings()
                             "css" -> showCssEditor()
                         }
+
                         return true
                     }
 
-                    val host = url.host ?: return true
+                    // IMPORTANT:
+                    // Allow HTTPS redirects, including Discord login,
+                    // verification and authentication providers.
+                    if (uri.scheme == "https") {
+                        return false
+                    }
 
-                    return !(
-                        host == "discord.com" ||
-                        host.endsWith(".discord.com") ||
-                        host == "discordapp.com" ||
-                        host.endsWith(".discordapp.com")
-                    )
+                    // Never allow insecure HTTP navigation.
+                    if (uri.scheme == "http") {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Blocked insecure HTTP navigation",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+
+                    return true
                 }
 
                 override fun onPageFinished(
@@ -140,42 +152,85 @@ button {
                 ) {
                     super.onPageFinished(view, url)
 
-                    if (url.startsWith("https://discord.com/")) {
+                    if (url.startsWith("https://")) {
                         applyCustomCss()
-                        injectSettingsEntry()
+                        DiscordInjector.install(view)
                     }
+                }
+
+                override fun onReceivedError(
+                    view: WebView,
+                    request: WebResourceRequest,
+                    error: WebResourceError
+                ) {
+                    super.onReceivedError(view, request, error)
+
+                    if (request.isForMainFrame) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Loading failed: ${error.description}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+
+                override fun onReceivedHttpError(
+                    view: WebView,
+                    request: WebResourceRequest,
+                    response: WebResourceResponse
+                ) {
+                    super.onReceivedHttpError(view, request, response)
+
+                    if (request.isForMainFrame &&
+                        response.statusCode >= 400
+                    ) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "HTTP ${response.statusCode}. Try reloading.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+
+                override fun onReceivedSslError(
+                    view: WebView,
+                    handler: SslErrorHandler,
+                    error: android.net.http.SslError
+                ) {
+                    // Never bypass SSL certificate errors.
+                    handler.cancel()
+
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Secure connection failed.",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
+    }
 
-        root.addView(header)
-
-        root.addView(
-            webView,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        )
-
-        setContentView(root)
-
+    private fun loadDiscord() {
         webView.loadUrl("https://discord.com/app")
     }
 
     private fun applyCustomCss() {
 
-        val css = preferences.getString("custom_css", defaultCss)
-            ?: defaultCss
+        val css = prefs.getString(
+            "custom_css",
+            defaultCss
+        ) ?: defaultCss
 
-        val quotedCss = JSONObject.quote(css)
+        val safeCss = JSONObject.quote(css)
 
         val javascript = """
             (function() {
-                const css = $quotedCss;
 
-                let style = document.getElementById('disdroid-custom-css');
+                if (!document.head) return;
+
+                let style = document.getElementById(
+                    'disdroid-custom-css'
+                );
 
                 if (!style) {
                     style = document.createElement('style');
@@ -183,111 +238,89 @@ button {
                     document.head.appendChild(style);
                 }
 
-                style.textContent = css;
+                style.textContent = $safeCss;
+
             })();
         """.trimIndent()
 
         webView.evaluateJavascript(javascript, null)
     }
 
-    private fun injectSettingsEntry() {
+    private fun showDisDroidSettings() {
 
-        val javascript = """
-            (function() {
+        val options = arrayOf(
+            "Custom CSS Editor",
+            "Reset CSS",
+            "Reload Discord"
+        )
 
-                if (window.disdroidObserver) {
-                    return;
-                }
+        AlertDialog.Builder(this)
+            .setTitle("DisDroid Settings")
+            .setItems(options) { _, which ->
 
-                function addDisDroidButton() {
+                when (which) {
 
-                    if (document.getElementById('disdroid-settings-entry')) {
-                        return;
+                    0 -> showCssEditor()
+
+                    1 -> {
+                        prefs.edit()
+                            .remove("custom_css")
+                            .apply()
+
+                        applyCustomCss()
+
+                        Toast.makeText(
+                            this,
+                            "CSS reset",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
 
-                    const elements = Array.from(
-                        document.querySelectorAll(
-                            'button, [role="button"], [role="menuitem"]'
-                        )
-                    );
-
-                    const settingsItem = elements.find(element => {
-                        const text = (element.innerText || '').trim();
-
-                        return (
-                            text === 'Appearance' ||
-                            text === 'My Account'
-                        );
-                    });
-
-                    if (!settingsItem) return;
-
-                    const button = settingsItem.cloneNode(true);
-
-                    button.id = 'disdroid-settings-entry';
-                    button.innerText = 'DisDroid';
-                    button.removeAttribute('aria-current');
-
-                    button.addEventListener('click', function(event) {
-                        event.preventDefault();
-                        event.stopPropagation();
-
-                        window.location.href = 'disdroid://css';
-                    });
-
-                    settingsItem.parentNode.insertBefore(
-                        button,
-                        settingsItem.nextSibling
-                    );
+                    2 -> loadDiscord()
                 }
-
-                addDisDroidButton();
-
-                window.disdroidObserver = new MutationObserver(function() {
-                    addDisDroidButton();
-                });
-
-                window.disdroidObserver.observe(
-                    document.body,
-                    {
-                        childList: true,
-                        subtree: true
-                    }
-                );
-
-            })();
-        """.trimIndent()
-
-        webView.evaluateJavascript(javascript, null)
+            }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     private fun showCssEditor() {
 
-        val savedCss = preferences.getString("custom_css", defaultCss)
-            ?: defaultCss
+        val editor = EditText(this).apply {
 
-        cssEditor = EditText(this).apply {
-            setText(savedCss)
+            setText(
+                prefs.getString("custom_css", defaultCss)
+                    ?: defaultCss
+            )
+
             setTextColor(Color.WHITE)
-            setHintTextColor(Color.GRAY)
+            setHintTextColor(Color.LTGRAY)
+
             textSize = 13f
-            gravity = Gravity.TOP or Gravity.START
+
             typeface = android.graphics.Typeface.MONOSPACE
+
+            gravity = Gravity.TOP or Gravity.START
+
+            minLines = 16
 
             inputType =
                 InputType.TYPE_CLASS_TEXT or
                 InputType.TYPE_TEXT_FLAG_MULTI_LINE or
                 InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
 
-            minLines = 16
             setPadding(18, 18, 18, 18)
-            setBackgroundColor(Color.rgb(29, 27, 38))
+
+            setBackgroundColor(
+                Color.rgb(29, 27, 38)
+            )
         }
 
-        val scrollView = ScrollView(this).apply {
+        val scroll = ScrollView(this).apply {
+
             setPadding(16, 8, 16, 8)
+
             addView(
-                cssEditor,
+                editor,
                 ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
@@ -297,7 +330,7 @@ button {
 
         val dialog = AlertDialog.Builder(this)
             .setTitle("DisDroid CSS Editor")
-            .setView(scrollView)
+            .setView(scroll)
             .setPositiveButton("Save & Apply", null)
             .setNeutralButton("Reset", null)
             .setNegativeButton("Cancel", null)
@@ -305,37 +338,42 @@ button {
 
         dialog.setOnShowListener {
 
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                .setOnClickListener {
+            dialog.getButton(
+                AlertDialog.BUTTON_POSITIVE
+            ).setOnClickListener {
 
-                    val css = cssEditor.text.toString()
+                prefs.edit()
+                    .putString(
+                        "custom_css",
+                        editor.text.toString()
+                    )
+                    .apply()
 
-                    preferences.edit()
-                        .putString("custom_css", css)
-                        .apply()
+                applyCustomCss()
 
-                    applyCustomCss()
+                Toast.makeText(
+                    this,
+                    "CSS saved!",
+                    Toast.LENGTH_SHORT
+                ).show()
 
-                    Toast.makeText(
-                        this,
-                        "CSS saved and applied!",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                dialog.dismiss()
+            }
 
-                    dialog.dismiss()
-                }
+            dialog.getButton(
+                AlertDialog.BUTTON_NEUTRAL
+            ).setOnClickListener {
 
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
-                .setOnClickListener {
-
-                    cssEditor.setText(defaultCss)
-                }
+                editor.setText(defaultCss)
+            }
         }
 
         dialog.show()
     }
 
+    @Suppress("DEPRECATION")
     override fun onBackPressed() {
+
         if (::webView.isInitialized && webView.canGoBack()) {
             webView.goBack()
         } else {
@@ -344,7 +382,9 @@ button {
     }
 
     override fun onDestroy() {
+
         if (::webView.isInitialized) {
+            webView.stopLoading()
             webView.destroy()
         }
 
